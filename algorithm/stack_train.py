@@ -114,7 +114,7 @@ def get_lr_value(init_lr,
 
 
 def sgvb_loss(qnet, pnet, metrics_dict: GraphNodes, prefix='train_', name=None):
-    with tf.name_scope(name, default_name='sgvb_loss'):
+    with tf.compat.v1.name_scope(name, default_name='sgvb_loss'):
         logpx_z = pnet['x'].log_prob(name='logpx_z')
         logpz1_z2 = pnet['z1'].log_prob(name='logpz1_z2')
         logpz2 = pnet['z2'].log_prob(name='logpz2')
@@ -123,12 +123,12 @@ def sgvb_loss(qnet, pnet, metrics_dict: GraphNodes, prefix='train_', name=None):
         logqz2_x = qnet['z2'].log_prob(name='logqz2_x')
         logqz_x = logqz1_x + logqz2_x
 
-        recons_term = tf.reduce_mean(logpx_z)
-        kl_term = tf.reduce_mean(logqz_x - logpz)
+        recons_term = tf.reduce_mean(input_tensor=logpx_z)
+        kl_term = tf.reduce_mean(input_tensor=logqz_x - logpz)
         metrics_dict[prefix + 'recons'] = recons_term
         metrics_dict[prefix + 'kl'] = kl_term
 
-        return -tf.reduce_mean(logpx_z + logpz - logqz_x)
+        return -tf.reduce_mean(input_tensor=logpx_z + logpz - logqz_x)
 
 
 def main(exp: mltk.Experiment[ExpConfig], config: ExpConfig):
@@ -141,7 +141,7 @@ def main(exp: mltk.Experiment[ExpConfig], config: ExpConfig):
     logging.info('Current random seed: %s', config.seed)
     np.random.seed(config.seed)
     random.seed(np.random.randint(0xffffffff))
-    tf.set_random_seed(np.random.randint(0xffffffff))
+    tf.compat.v1.set_random_seed(np.random.randint(0xffffffff))
     np.random.seed(np.random.randint(0xffffffff))
 
     spt.settings.check_numerics = config.check_numerics
@@ -190,80 +190,88 @@ def main(exp: mltk.Experiment[ExpConfig], config: ExpConfig):
         model = MTSAD(config.model, scope='model')
 
     # input placeholders
-    input_x = tf.placeholder(dtype=tf.float32, shape=[None, config.model.window_length, config.model.x_dim],
-                             name='input_x')
-    input_u = tf.placeholder(dtype=tf.float32, shape=[None, config.model.window_length, config.model.u_dim],
-                             name='input_u')
-    learning_rate = tf.placeholder(dtype=tf.float32, shape=(), name='learning_rate')
-    is_training = tf.placeholder(dtype=tf.bool, shape=(), name='is_training')
+    # placeholders are not compatible with eager execution, so we disable it
+    tf.compat.v1.disable_eager_execution()
+    input_x = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, config.model.window_length, config.model.x_dim],name='input_x')
+    input_u = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, config.model.window_length, config.model.u_dim],name='input_u')
+    learning_rate = tf.compat.v1.placeholder(dtype=tf.float32, shape=(), name='learning_rate')
+    is_training = tf.compat.v1.placeholder(dtype=tf.bool, shape=(), name='is_training')
+    #input_x = tf.keras.Input(shape=(config.model.window_length, config.model.x_dim), name='input_x')
+    #input_u = tf.keras.Input(shape=(config.model.window_length, config.model.u_dim), name='input_u')
+    #learning_rate = tf.keras.Input(shape=(), dtype=tf.float32, name='learning_rate')
+    #is_training = tf.keras.Input(shape=(), dtype=tf.bool, name='is_training')
 
     # derive training nodes
-    with tf.name_scope('training'):
+    with tf.compat.v1.name_scope('training'):
         # pretrain time-vae to get z2
         pretrain_q_net = model.pretrain_q_net(input_x, is_training=is_training)
         pretrain_chain = pretrain_q_net.chain(model.pretrain_p_net, observed={'x': input_x}, is_training=is_training)
-        pretrain_loss = tf.reduce_mean(pretrain_chain.vi.training.sgvb()) + tf.losses.get_regularization_loss()
-        pretrain_train_recons = tf.reduce_mean(pretrain_chain.model['x'].log_prob())
+        pretrain_loss = tf.reduce_mean(input_tensor=pretrain_chain.vi.training.sgvb()) + tf.compat.v1.losses.get_regularization_loss()
+        pretrain_train_recons = tf.reduce_mean(input_tensor=pretrain_chain.model['x'].log_prob())
 
         # train the whole network with z1 and z2
         train_q_net = model.q_net(input_x, u=input_u, is_training=is_training)
         train_chain = train_q_net.chain(model.p_net, observed={'x': input_x}, u=input_u, is_training=is_training)
         train_metrics = GraphNodes()
         vae_loss = sgvb_loss(train_chain.variational, train_chain.model, train_metrics, name='train_sgvb_loss')
-        reg_loss = tf.losses.get_regularization_loss()
+        reg_loss = tf.compat.v1.losses.get_regularization_loss()
         loss = vae_loss + reg_loss
         train_metrics['loss'] = loss
 
-    with tf.name_scope('validation'):
+    with tf.compat.v1.name_scope('validation'):
         # pretrain validation
         pretrain_valid_q_net = model.pretrain_q_net(input_x, n_z=config.test.test_n_z)
         pretrain_valid_chain = pretrain_valid_q_net.chain(model.pretrain_p_net, observed={'x': input_x}, latent_axis=0)
-        pretrain_valid_loss = tf.reduce_mean(pretrain_valid_chain.vi.training.sgvb()) + tf.losses.get_regularization_loss()
-        pretrain_valid_recons = tf.reduce_mean(pretrain_valid_chain.model['x'].log_prob())
+        pretrain_valid_loss = tf.reduce_mean(input_tensor=pretrain_valid_chain.vi.training.sgvb()) + tf.compat.v1.losses.get_regularization_loss()
+        pretrain_valid_recons = tf.reduce_mean(input_tensor=pretrain_valid_chain.model['x'].log_prob())
 
         # validation of the whole network
         valid_q_net = model.q_net(input_x, u=input_u, n_z=config.test.test_n_z)
         valid_chain = valid_q_net.chain(model.p_net, observed={'x': input_x}, latent_axis=0, u=input_u)
         valid_metrics = GraphNodes()
         valid_loss = sgvb_loss(valid_chain.variational, valid_chain.model, valid_metrics, prefix='valid_',
-                               name='valid_sgvb_loss') + tf.losses.get_regularization_loss()
+                               name='valid_sgvb_loss') + tf.compat.v1.losses.get_regularization_loss()
         valid_metrics['valid_loss'] = valid_loss
 
     # pretrain
     pre_variables_to_save = sum(
-            [tf.global_variables('model/pretrain_q_net'), tf.global_variables('model/pretrain_p_net'),
-             tf.global_variables('model/h_for_qz'), tf.global_variables('model/h_for_px')],
+            [tf.compat.v1.global_variables('model/pretrain_q_net'), tf.compat.v1.global_variables('model/pretrain_p_net'),
+             tf.compat.v1.global_variables('model/h_for_qz'), tf.compat.v1.global_variables('model/h_for_px')],
             []
     )
     pre_train_params = sum(
-            [tf.trainable_variables('model/pretrain_q_net'), tf.trainable_variables('model/pretrain_p_net'),
-             tf.trainable_variables('model/h_for_qz'), tf.trainable_variables('model/h_for_px')],
+            [tf.compat.v1.trainable_variables('model/pretrain_q_net'), tf.compat.v1.trainable_variables('model/pretrain_p_net'),
+             tf.compat.v1.trainable_variables('model/h_for_qz'), tf.compat.v1.trainable_variables('model/h_for_px')],
             []
     )
-    pre_optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
-    pre_gradients = pre_optimizer.compute_gradients(pretrain_loss, var_list=pre_train_params)
-    with tf.name_scope('PreClipGradients'):
+    #pre_optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate)
+    #pre_gradients = pre_optimizer.compute_gradients(pretrain_loss, var_list=pre_train_params)
+    pre_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    pre_gradients = pre_optimizer.get_gradients(pretrain_loss, params=pre_train_params)
+    with tf.compat.v1.name_scope('PreClipGradients'):
         for i, (g, v) in enumerate(pre_gradients):
             if g is not None:
                 pre_gradients[i] = (tf.clip_by_norm(
                     spt.utils.maybe_check_numerics(g, message='gradient on %s exceed' % str(v.name)), 10), v)
-    with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+    with tf.control_dependencies(tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.UPDATE_OPS)):
         pre_train_op = pre_optimizer.apply_gradients(pre_gradients)
 
     # obtain params and gradients (whole model)
-    variables_to_save = tf.global_variables()
-    train_params = tf.trainable_variables()
+    variables_to_save = tf.compat.v1.global_variables()
+    train_params = tf.compat.v1.trainable_variables()
 
     # optimizer
-    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
-    gradients = optimizer.compute_gradients(loss, var_list=train_params)
+    #optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate)
+    #gradients = optimizer.compute_gradients(loss, var_list=train_params)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    gradients = optimizer.get_gradients(loss, params=train_params)
     # clip gradient by norm
-    with tf.name_scope('ClipGradients'):
+    with tf.compat.v1.name_scope('ClipGradients'):
         for i, (g, v) in enumerate(gradients):
             if g is not None:
                 gradients[i] = (tf.clip_by_norm(
                     spt.utils.maybe_check_numerics(g, message="gradient on %s exceed" % str(v.name)), 10), v)
-    with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+    with tf.control_dependencies(tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.UPDATE_OPS)):
         train_op = optimizer.apply_gradients(gradients)
 
     pre_var_groups = [
@@ -287,7 +295,7 @@ def main(exp: mltk.Experiment[ExpConfig], config: ExpConfig):
         model.variable_scope.name + '/posterior_flow'
     ]
 
-    var_initializer = tf.variables_initializer(tf.global_variables())
+    var_initializer = tf.compat.v1.variables_initializer(tf.compat.v1.global_variables())
 
     train_flow = train_flow.threaded(5)
     valid_flow = valid_flow.threaded(5)
@@ -296,7 +304,7 @@ def main(exp: mltk.Experiment[ExpConfig], config: ExpConfig):
                          var_groups=pre_var_groups,
                          max_epoch=config.train.pretrain_max_epoch,
                          summary_dir=(exp.abspath('pre_train_summary') if config.write_summary else None),
-                         summary_graph=tf.get_default_graph(),
+                         summary_graph=tf.compat.v1.get_default_graph(),
                          summary_commit_freqs={'pretrain_loss': 10},
                          early_stopping=config.train.early_stopping,
                          valid_metric_name='pretrain_valid_loss',
@@ -310,7 +318,7 @@ def main(exp: mltk.Experiment[ExpConfig], config: ExpConfig):
                      max_epoch=config.train.max_epoch,
                      summary_dir=(exp.abspath('train_summary')
                                   if config.write_summary else None),
-                     summary_graph=tf.get_default_graph(),
+                     summary_graph=tf.compat.v1.get_default_graph(),
                      summary_commit_freqs={'loss': 10},
                      early_stopping=config.train.early_stopping,
                      valid_metric_name='valid_loss',
@@ -322,7 +330,7 @@ def main(exp: mltk.Experiment[ExpConfig], config: ExpConfig):
                      )
 
     if config.write_histogram_summary:
-        summary_op = tf.summary.merge_all()
+        summary_op = tf.compat.v1.summary.merge_all()
     else:
         summary_op = None
 
@@ -401,7 +409,7 @@ def main(exp: mltk.Experiment[ExpConfig], config: ExpConfig):
         print('PreTraining Finished.')
 
         if config.save_results:
-            saver = tf.train.Saver(var_list=pre_variables_to_save)
+            saver = tf.compat.v1.train.Saver(var_list=pre_variables_to_save)
             saver.save(session, os.path.join(exp.abspath('result_params'), 'restored_pretrain_params.dat'))
 
         print('')
@@ -416,7 +424,7 @@ def main(exp: mltk.Experiment[ExpConfig], config: ExpConfig):
         print('Training Finished.')
 
         if config.save_results:
-            saver = tf.train.Saver(var_list=variables_to_save)
+            saver = tf.compat.v1.train.Saver(var_list=variables_to_save)
             saver.save(session, os.path.join(exp.abspath('result_params'), "restored_params.dat"))
 
         print('')

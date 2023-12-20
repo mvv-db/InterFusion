@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.contrib.framework import add_arg_scope
+from tf_slim import add_arg_scope
 
 from tfsnippet.ops import (assert_rank, assert_scalar_equal, flatten_to_ndims,
                            unflatten_from_ndims)
@@ -31,9 +31,9 @@ def batch_norm_1d(input, channels_last=True, training=False, name=None,
     Returns:
         tf.Tensor: The normalized tensor.
     """
-    with tf.variable_scope(scope, default_name=name or 'batch_norm_1d'):
+    with tf.compat.v1.variable_scope(scope, default_name=name or 'batch_norm_1d'):
         input, s1, s2 = flatten_to_ndims(input, ndims=3)
-        output = tf.layers.batch_normalization(
+        output = tf.compat.v1.layers.batch_normalization(
             input,
             axis=-1 if channels_last else -2,
             training=training,
@@ -109,7 +109,7 @@ def conv1d(input,
            kernel_constraint=None,
            use_bias=None,
            bias=None,
-           bias_initializer=tf.zeros_initializer(),
+           bias_initializer=tf.compat.v1.zeros_initializer(),
            bias_regularizer=None,
            bias_constraint=None,
            trainable=True,
@@ -190,13 +190,13 @@ def conv1d(input,
         kernel_mask_spec = InputSpec(dtype=dtype)
         kernel_mask = kernel_mask_spec.validate('kernel_mask', kernel_mask)
     if kernel_initializer is None:
-        kernel_initializer = tf.glorot_normal_initializer()
+        kernel_initializer = tf.compat.v1.glorot_normal_initializer()
     if bias is not None:
         bias_spec = ParamSpec(shape=bias_shape, dtype=dtype)
         bias = bias_spec.validate('bias', bias)
 
     # the main part of the conv1d layer
-    with tf.variable_scope(scope, default_name=name or 'conv1d'):
+    with tf.compat.v1.variable_scope(scope, default_name=name or 'conv1d'):
         c_axis = -1 if channels_last else -2
 
         # create the variables
@@ -236,14 +236,14 @@ def conv1d(input,
         if dilations > 1:
             output = tf.nn.convolution(
                 input=output,
-                filter=kernel,
-                dilation_rate=(dilations,),
+                filters=kernel,
+                dilations=(dilations,),
                 padding=padding,
                 data_format=data_format
             )
         else:
             output = tf.nn.conv1d(
-                value=output,
+                input=output,
                 filters=kernel,
                 stride=strides,
                 padding=padding,
@@ -308,7 +308,7 @@ def deconv1d(input,
              kernel_constraint=None,
              use_bias=None,
              bias=None,
-             bias_initializer=tf.zeros_initializer(),
+             bias_initializer=tf.compat.v1.zeros_initializer(),
              bias_regularizer=None,
              bias_constraint=None,
              trainable=True,
@@ -380,7 +380,7 @@ def deconv1d(input,
     given_output_shape = output_shape
 
     if is_tensor_object(given_output_shape):
-        given_output_shape = tf.convert_to_tensor(given_output_shape)
+        given_output_shape = tf.convert_to_tensor(value=given_output_shape)
     elif given_output_shape is not None:
         given_w = given_output_shape
 
@@ -389,14 +389,14 @@ def deconv1d(input,
         kernel_spec = ParamSpec(shape=kernel_shape, dtype=dtype)
         kernel = kernel_spec.validate('kernel', kernel)
     if kernel_initializer is None:
-        kernel_initializer = tf.glorot_normal_initializer()
+        kernel_initializer = tf.compat.v1.glorot_normal_initializer()
     if bias is not None:
         bias_spec = ParamSpec(shape=bias_shape, dtype=dtype)
         bias = bias_spec.validate('bias', bias)
 
     # the main part of the conv2d layer
-    with tf.variable_scope(scope, default_name=name or 'deconv1d'):
-        with tf.name_scope('output_shape'):
+    with tf.compat.v1.variable_scope(scope, default_name=name or 'deconv1d'):
+        with tf.compat.v1.name_scope('output_shape'):
             # detect the input shape and axis arrangements
             input_shape = get_static_shape(input)
             if channels_last:
@@ -426,7 +426,7 @@ def deconv1d(input,
 
             # prepare for the dynamic batch shape
             if output_shape[0] is None:
-                output_shape[0] = tf.reduce_prod(get_shape(input)[:-2])
+                output_shape[0] = tf.reduce_prod(input_tensor=get_shape(input)[:-2])
 
             # prepare for the dynamic spatial dimensions
             if output_shape[w_axis] is None:
@@ -442,7 +442,7 @@ def deconv1d(input,
                     with assert_deps([
                         assert_rank(given_output_shape, 1),
                         assert_scalar_equal(
-                            tf.size(given_output_shape), 1)
+                            tf.size(input=given_output_shape), 1)
                     ]):
                         output_shape[w_axis] = given_output_shape[0]
 
@@ -483,11 +483,11 @@ def deconv1d(input,
         output, s1, s2 = flatten_to_ndims(input, 3)
 
         # do convolution or deconvolution
-        output = tf.contrib.nn.conv1d_transpose(
-            value=output,
-            filter=kernel,
+        output = tf.nn.conv1d_transpose(
+            input=output,
+            filters=kernel,
             output_shape=output_shape,
-            stride=strides,
+            strides=strides,
             padding=padding,
             data_format=data_format
         )

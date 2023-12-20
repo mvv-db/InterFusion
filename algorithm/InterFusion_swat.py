@@ -3,8 +3,8 @@ from typing import Optional, List
 
 import logging
 import tensorflow as tf
-from tensorflow.contrib.rnn import static_rnn, static_bidirectional_rnn
-from tensorflow.contrib.framework import arg_scope
+from tensorflow.compat.v1.nn import static_rnn, static_bidirectional_rnn
+from tf_slim import arg_scope
 import tfsnippet as spt
 from tfsnippet.bayes import BayesianNet
 from tfsnippet.utils import (instance_reuse,
@@ -61,23 +61,23 @@ class MTSAD_SWAT(VarScopeObject):
 
         with reopen_variable_scope(self.variable_scope):
             if self.config.rnn_cell == RNNCellType.Basic:
-                self.d_fw_cell = tf.nn.rnn_cell.BasicRNNCell(self.config.rnn_hidden_units, name='d_fw_cell')
-                self.a_fw_cell = tf.nn.rnn_cell.BasicRNNCell(self.config.rnn_hidden_units, name='a_fw_cell')
+                self.d_fw_cell = tf.compat.v1.nn.rnn_cell.BasicRNNCell(self.config.rnn_hidden_units, name='d_fw_cell')
+                self.a_fw_cell = tf.compat.v1.nn.rnn_cell.BasicRNNCell(self.config.rnn_hidden_units, name='a_fw_cell')
                 if self.config.use_bidirectional_rnn:
-                    self.d_bw_cell = tf.nn.rnn_cell.BasicRNNCell(self.config.rnn_hidden_units, name='d_bw_cell')
-                    self.a_bw_cell = tf.nn.rnn_cell.BasicRNNCell(self.config.rnn_hidden_units, name='a_bw_cell')
+                    self.d_bw_cell = tf.compat.v1.nn.rnn_cell.BasicRNNCell(self.config.rnn_hidden_units, name='d_bw_cell')
+                    self.a_bw_cell = tf.compat.v1.nn.rnn_cell.BasicRNNCell(self.config.rnn_hidden_units, name='a_bw_cell')
             elif self.config.rnn_cell == RNNCellType.LSTM:
-                self.d_fw_cell = tf.nn.rnn_cell.LSTMCell(self.config.rnn_hidden_units, name='d_fw_cell')
-                self.a_fw_cell = tf.nn.rnn_cell.LSTMCell(self.config.rnn_hidden_units, name='a_fw_cell')
+                self.d_fw_cell = tf.compat.v1.nn.rnn_cell.LSTMCell(self.config.rnn_hidden_units, name='d_fw_cell')
+                self.a_fw_cell = tf.compat.v1.nn.rnn_cell.LSTMCell(self.config.rnn_hidden_units, name='a_fw_cell')
                 if self.config.use_bidirectional_rnn:
-                    self.d_bw_cell = tf.nn.rnn_cell.LSTMCell(self.config.rnn_hidden_units, name='d_bw_cell')
-                    self.a_bw_cell = tf.nn.rnn_cell.LSTMCell(self.config.rnn_hidden_units, name='a_bw_cell')
+                    self.d_bw_cell = tf.compat.v1.nn.rnn_cell.LSTMCell(self.config.rnn_hidden_units, name='d_bw_cell')
+                    self.a_bw_cell = tf.compat.v1.nn.rnn_cell.LSTMCell(self.config.rnn_hidden_units, name='a_bw_cell')
             elif self.config.rnn_cell == RNNCellType.GRU:
-                self.d_fw_cell = tf.nn.rnn_cell.GRUCell(self.config.rnn_hidden_units, name='d_fw_cell')
-                self.a_fw_cell = tf.nn.rnn_cell.GRUCell(self.config.rnn_hidden_units, name='a_fw_cell')
+                self.d_fw_cell = tf.compat.v1.nn.rnn_cell.GRUCell(self.config.rnn_hidden_units, name='d_fw_cell')
+                self.a_fw_cell = tf.compat.v1.nn.rnn_cell.GRUCell(self.config.rnn_hidden_units, name='a_fw_cell')
                 if self.config.use_bidirectional_rnn:
-                    self.d_bw_cell = tf.nn.rnn_cell.GRUCell(self.config.rnn_hidden_units, name='d_bw_cell')
-                    self.a_bw_cell = tf.nn.rnn_cell.GRUCell(self.config.rnn_hidden_units, name='a_bw_cell')
+                    self.d_bw_cell = tf.compat.v1.nn.rnn_cell.GRUCell(self.config.rnn_hidden_units, name='d_bw_cell')
+                    self.a_bw_cell = tf.compat.v1.nn.rnn_cell.GRUCell(self.config.rnn_hidden_units, name='a_bw_cell')
             else:
                 raise ValueError('rnn cell must be one of GRU, LSTM or Basic.')
 
@@ -131,7 +131,7 @@ class MTSAD_SWAT(VarScopeObject):
         Reverse rnn network a, capture the future information in qnet.
         """
         def dropout_fn(input):
-            return tf.layers.dropout(input, rate=.5, training=is_training)
+            return tf.compat.v1.layers.dropout(input, rate=.5, training=is_training)
 
         flag = False
         if len(x.shape) == 4:               # (n_samples, batch_size, window_length, x_dim)
@@ -158,8 +158,8 @@ class MTSAD_SWAT(VarScopeObject):
             outputs1 = spt.layers.dense(outputs, 500, activation_fn=tf.nn.tanh, use_bias=True, scope='arnn_attention_dense1')
             outputs1 = tf.nn.softmax(spt.layers.dense(outputs1, window_length,
                                                       use_bias=False, scope='arnn_attention_dense2'), axis=1)
-            M_t = tf.matmul(tf.transpose(outputs, perm=[0, 2, 1]), outputs1)
-            outputs = tf.transpose(M_t, perm=[0, 2, 1])
+            M_t = tf.matmul(tf.transpose(a=outputs, perm=[0, 2, 1]), outputs1)
+            outputs = tf.transpose(a=M_t, perm=[0, 2, 1])
 
         # feature extraction layers
         outputs = spt.layers.dense(outputs, units=500, activation_fn=tf.nn.leaky_relu if self.config.use_leaky_relu else tf.nn.relu,
@@ -213,7 +213,7 @@ class MTSAD_SWAT(VarScopeObject):
         net = BayesianNet(observed=observed)
 
         def dropout_fn(input):
-            return tf.layers.dropout(input, rate=.5, training=is_training)
+            return tf.compat.v1.layers.dropout(input, rate=.5, training=is_training)
 
         # use the pretrained z2 which compress along the time dimension
         qz2_mean, qz2_logstd = self.h_for_qz(x, is_training=is_training)
@@ -299,8 +299,8 @@ class MTSAD_SWAT(VarScopeObject):
         x_mean = spt.layers.dense(h_z, units=self.config.x_dim, scope='x_mean')
         if self.config.unified_px_logstd:
             x_logstd = tf.clip_by_value(
-                tf.get_variable(name='x_logstd', shape=(), trainable=True, dtype=tf.float32,
-                                initializer=tf.constant_initializer(-1., dtype=tf.float32)),
+                tf.compat.v1.get_variable(name='x_logstd', shape=(), trainable=True, dtype=tf.float32,
+                                initializer=tf.compat.v1.constant_initializer(-1., dtype=tf.float32)),
                                 clip_value_min=self.config.logstd_min, clip_value_max=self.config.logstd_max)
         else:
             x_logstd = tf.clip_by_value(spt.layers.dense(h_z, units=self.config.x_dim, scope='x_logstd'),
@@ -313,22 +313,22 @@ class MTSAD_SWAT(VarScopeObject):
         return net
 
     def reconstruct(self, x, u, mask, n_z=None):
-        with tf.name_scope('model.reconstruct'):
+        with tf.compat.v1.name_scope('model.reconstruct'):
             qnet = self.q_net(x=x, u=u, n_z=n_z)
             pnet = self.p_net(observed={'z1': qnet['z1'], 'z2': qnet['z2']}, u=u)
         return pnet['x']
 
     def get_score(self, x_embed, x_eval, u, n_z=None):
-        with tf.name_scope('model.get_score'):
+        with tf.compat.v1.name_scope('model.get_score'):
             qnet = self.q_net(x=x_embed, u=u, n_z=n_z)
             pnet = self.p_net(observed={'z1': qnet['z1'], 'z2': qnet['z2']}, u=u)
             score = pnet['x'].distribution.base_distribution.log_prob(x_eval)
             recons_mean = pnet['x'].distribution.base_distribution.mean
             recons_std = pnet['x'].distribution.base_distribution.std
             if n_z is not None:
-                score = tf.reduce_mean(score, axis=0)
-                recons_mean = tf.reduce_mean(recons_mean, axis=0)
-                recons_std = tf.reduce_mean(recons_std, axis=0)
+                score = tf.reduce_mean(input_tensor=score, axis=0)
+                recons_mean = tf.reduce_mean(input_tensor=recons_mean, axis=0)
+                recons_std = tf.reduce_mean(input_tensor=recons_std, axis=0)
         return score, recons_mean, recons_std
 
     @instance_reuse
@@ -366,7 +366,7 @@ class MTSAD_SWAT(VarScopeObject):
         net = BayesianNet(observed=observed)
 
         def dropout_fn(input):
-            return tf.layers.dropout(input, rate=.5, training=is_training)
+            return tf.compat.v1.layers.dropout(input, rate=.5, training=is_training)
 
         qz_mean, qz_logstd = self.h_for_qz(x, is_training=is_training)
 

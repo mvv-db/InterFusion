@@ -1,7 +1,5 @@
-import os
-import pickle
 import numpy as np
-
+import pickle
 
 def cal_IPS(path, dataset, mcmc, is_pretrain):
     path += '/'

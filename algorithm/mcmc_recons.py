@@ -20,17 +20,17 @@ def masked_reconstruct(reconstruct, x, u, mask, name=None):
     Returns:
         tf.Tensor: `x` with masked elements replaced by reconstructed outputs.
     """
-    with tf.name_scope(name, default_name='masked_reconstruct'):
-        x = tf.convert_to_tensor(x)  # type: tf.Tensor
-        mask = tf.convert_to_tensor(mask, dtype=tf.int32)  # type: tf.Tensor
+    with tf.compat.v1.name_scope(name, default_name='masked_reconstruct'):
+        x = tf.convert_to_tensor(value=x)  # type: tf.Tensor
+        mask = tf.convert_to_tensor(value=mask, dtype=tf.int32)  # type: tf.Tensor
 
-        mask = tf.broadcast_to(mask, tf.shape(x))
+        mask = tf.broadcast_to(mask, tf.shape(input=x))
 
         # get reconstructed x. Currently only support mask the last point if pixelcnn decoder is used.
         x_recons = reconstruct(x, u, mask)
 
         # get masked outputs
-        return tf.where(tf.cast(mask, dtype=tf.bool), x_recons, x)
+        return tf.compat.v1.where(tf.cast(mask, dtype=tf.bool), x_recons, x)
 
 
 def mcmc_reconstruct(reconstruct, x, u, mask, iter_count,
@@ -55,13 +55,13 @@ def mcmc_reconstruct(reconstruct, x, u, mask, iter_count,
     Returns:
         tf.Tensor: The iteratively reconstructed `x`.
     """
-    with tf.name_scope(name, default_name='mcmc_reconstruct'):
+    with tf.compat.v1.name_scope(name, default_name='mcmc_reconstruct'):
 
         # do the masked reconstructions
         x_recons, _ = tf.while_loop(
-            lambda x_i, i: i < iter_count,
-            lambda x_i, i: (masked_reconstruct(reconstruct, x_i, u, mask), i + 1),
-            [x, tf.constant(0, dtype=tf.int32)],
+            cond=lambda x_i, i: i < iter_count,
+            body=lambda x_i, i: (masked_reconstruct(reconstruct, x_i, u, mask), i + 1),
+            loop_vars=[x, tf.constant(0, dtype=tf.int32)],
             back_prop=back_prop
         )
 

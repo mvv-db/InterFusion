@@ -45,12 +45,12 @@ class PredictConfig(mltk.Config):
 
 
 def build_test_graph(chain: spt.VariationalChain, input_x, origin_chain: spt.VariationalChain=None) -> GraphNodes:
-    test_recons = tf.reduce_mean(chain.model['x'].log_prob(), axis=0)
+    test_recons = tf.reduce_mean(input_tensor=chain.model['x'].log_prob(), axis=0)
 
     logpx = chain.model['x'].log_prob()
     logpz = chain.model['z2'].log_prob() + chain.model['z1'].log_prob()
     logqz_x = chain.variational['z1'].log_prob() + chain.variational['z2'].log_prob()
-    test_lb = tf.reduce_mean(logpx + logpz - logqz_x, axis=0)
+    test_lb = tf.reduce_mean(input_tensor=logpx + logpz - logqz_x, axis=0)
 
     log_joint = logpx + logpz
     latent_log_prob = logqz_x
@@ -60,12 +60,12 @@ def build_test_graph(chain: spt.VariationalChain, input_x, origin_chain: spt.Var
     # average over sample dim
     if origin_chain is not None:
         full_recons_prob = tf.reduce_mean(
-            (chain.model['x'].distribution.base_distribution.log_prob(input_x) -
+            input_tensor=(chain.model['x'].distribution.base_distribution.log_prob(input_x) -
              origin_chain.model['x'].distribution.base_distribution.log_prob(input_x)),
             axis=0
         )
     else:
-        full_recons_prob = tf.reduce_mean(chain.model['x'].distribution.base_distribution.log_prob(input_x), axis=0)
+        full_recons_prob = tf.reduce_mean(input_tensor=chain.model['x'].distribution.base_distribution.log_prob(input_x), axis=0)
 
     if origin_chain is not None:
         origin_log_joint = origin_chain.model['x'].log_prob() + origin_chain.model['z1'].log_prob() + origin_chain.model['z2'].log_prob()
@@ -89,13 +89,13 @@ def build_test_graph(chain: spt.VariationalChain, input_x, origin_chain: spt.Var
 
 def build_recons_graph(chain: spt.VariationalChain, window_length, feature_dim, unified_x_std=False) -> GraphNodes:
     # average over sample dim
-    recons_x = tf.reduce_mean(chain.model['x'].distribution.base_distribution.mean, axis=0)
+    recons_x = tf.reduce_mean(input_tensor=chain.model['x'].distribution.base_distribution.mean, axis=0)
     recons_x = spt.utils.InputSpec(shape=['?', window_length, feature_dim]).validate('recons', recons_x)
     if unified_x_std:
         recons_x_std = chain.model['x'].distribution.base_distribution.std
-        recons_x_std = spt.ops.broadcast_to_shape(recons_x_std, tf.shape(recons_x))
+        recons_x_std = spt.ops.broadcast_to_shape(recons_x_std, tf.shape(input=recons_x))
     else:
-        recons_x_std = tf.reduce_mean(chain.model['x'].distribution.base_distribution.std, axis=0)
+        recons_x_std = tf.reduce_mean(input_tensor=chain.model['x'].distribution.base_distribution.std, axis=0)
     recons_x_std = spt.utils.InputSpec(shape=['?', window_length, feature_dim]).validate('recons_std', recons_x_std)
     return GraphNodes({'recons_x': recons_x, 'recons_x_std': recons_x_std})
 
@@ -204,11 +204,11 @@ def mcmc_tracker(flow: spt.DataFlow, baseline, model, input_x, input_u, mask, ma
                  window_length, x_dim, mask_last=False, pos_mask=False, use_rand_mask=False, n_mc_chain=1):
     # the baseline is the avg total score in a window on training set.
     session = spt.utils.get_default_session_or_error()
-    last_x = tf.placeholder(dtype=tf.float32, shape=[None, window_length, x_dim], name='last_x')
+    last_x = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, window_length, x_dim], name='last_x')
 
     x_r = masked_reconstruct(model.reconstruct, last_x, input_u, mask)
     score, recons_mean, recons_std = model.get_score(x_embed=x_r, x_eval=input_x, u=input_u)
-    tot_score = tf.reduce_sum(tf.multiply(score, tf.cast((1-mask), score.dtype)))
+    tot_score = tf.reduce_sum(input_tensor=tf.multiply(score, tf.cast((1-mask), score.dtype)))
 
     def avg_multi_chain(x, n_chain):
         shape = (-1,) + (n_chain,) + x.shape[1:]
@@ -377,33 +377,33 @@ def main(exp: mltk.Experiment[PredictConfig], test_config: PredictConfig):
         model = MTSAD(train_config.model, scope='model')
 
     # input placeholders
-    input_x = tf.placeholder(dtype=tf.float32, shape=[None, train_config.model.window_length, train_config.model.x_dim], name='input_x')
-    input_u = tf.placeholder(dtype=tf.float32, shape=[None, train_config.model.window_length, train_config.model.u_dim], name='input_u')
-    mask = tf.placeholder(dtype=tf.int32, shape=[None, train_config.model.window_length, train_config.model.x_dim], name='mask')
-    rand_x = tf.placeholder(dtype=tf.float32, shape=[None, train_config.model.window_length, train_config.model.x_dim], name='rand_x')
+    input_x = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, train_config.model.window_length, train_config.model.x_dim], name='input_x')
+    input_u = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, train_config.model.window_length, train_config.model.u_dim], name='input_u')
+    mask = tf.compat.v1.placeholder(dtype=tf.int32, shape=[None, train_config.model.window_length, train_config.model.x_dim], name='mask')
+    rand_x = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, train_config.model.window_length, train_config.model.x_dim], name='rand_x')
 
     tmp_out = None
     if test_config.use_mcmc:
-        with tf.name_scope('mcmc_init'):
+        with tf.compat.v1.name_scope('mcmc_init'):
             tmp_qnet = model.q_net(input_x, u=input_u, n_z=test_config.test_n_z)
             tmp_chain = tmp_qnet.chain(model.p_net, observed={'x': input_x}, latent_axis=0, u=input_u)
-            tmp_out = tf.reduce_mean(tmp_chain.vi.lower_bound.elbo())
+            tmp_out = tf.reduce_mean(input_tensor=tmp_chain.vi.lower_bound.elbo())
 
     # derive testing nodes
-    with tf.name_scope('testing'):
+    with tf.compat.v1.name_scope('testing'):
 
         if test_config.use_mcmc:
             if test_config.mcmc_rand_mask:      # use random value to mask the initial input for mcmc (otherwise use the original one)
                 if test_config.n_mc_chain > 1:  # average the results of multi-mcmc chain for each input x.
-                    init_x = tf.where(tf.cast(mask, dtype=tf.bool), rand_x, input_x)
+                    init_x = tf.compat.v1.where(tf.cast(mask, dtype=tf.bool), rand_x, input_x)
                     init_x, s1, s2 = spt.ops.flatten_to_ndims(tf.tile(tf.expand_dims(init_x, 1), [1, test_config.n_mc_chain, 1, 1]), 3)
                     init_u, _, _ = spt.ops.flatten_to_ndims(tf.tile(tf.expand_dims(input_u, 1), [1, test_config.n_mc_chain, 1, 1]), 3)
                     init_mask, _, _ = spt.ops.flatten_to_ndims(tf.tile(tf.expand_dims(mask, 1), [1, test_config.n_mc_chain, 1, 1]), 3)
                     x_mcmc = mcmc_reconstruct(model.reconstruct, init_x, init_u, init_mask, test_config.mcmc_iter, back_prop=False)
                     x_mcmc = spt.ops.unflatten_from_ndims(x_mcmc, s1, s2)
-                    x_mcmc = tf.reduce_mean(x_mcmc, axis=1)
+                    x_mcmc = tf.reduce_mean(input_tensor=x_mcmc, axis=1)
                 else:
-                    init_x = tf.where(tf.cast(mask, dtype=tf.bool), rand_x, input_x)
+                    init_x = tf.compat.v1.where(tf.cast(mask, dtype=tf.bool), rand_x, input_x)
                     x_mcmc = mcmc_reconstruct(model.reconstruct, init_x, input_u, mask, test_config.mcmc_iter, back_prop=False)
             else:
                 if test_config.n_mc_chain > 1:
@@ -412,7 +412,7 @@ def main(exp: mltk.Experiment[PredictConfig], test_config: PredictConfig):
                     init_mask, _, _ = spt.ops.flatten_to_ndims(tf.tile(tf.expand_dims(mask, 1), [1, test_config.n_mc_chain, 1, 1]), 3)
                     x_mcmc = mcmc_reconstruct(model.reconstruct, init_x, init_u, init_mask, test_config.mcmc_iter, back_prop=False)
                     x_mcmc = spt.ops.unflatten_from_ndims(x_mcmc, s1, s2)
-                    x_mcmc = tf.reduce_mean(x_mcmc, axis=1)
+                    x_mcmc = tf.reduce_mean(input_tensor=x_mcmc, axis=1)
                 else:
                     x_mcmc = mcmc_reconstruct(model.reconstruct, input_x, input_u, mask, test_config.mcmc_iter, back_prop=False)
         else:
@@ -427,12 +427,12 @@ def main(exp: mltk.Experiment[PredictConfig], test_config: PredictConfig):
             recons_nodes = build_recons_graph(test_chain, train_config.model.window_length, train_config.model.x_dim, train_config.model.unified_px_logstd)
 
     # obtain params to restore
-    variables_to_restore = tf.global_variables()
+    variables_to_restore = tf.compat.v1.global_variables()
 
     restore_path = os.path.join(test_config.load_model_dir, 'result_params/restored_params.dat')
 
     # obtain the variables initializer
-    var_initializer = tf.variables_initializer(tf.global_variables())
+    var_initializer = tf.compat.v1.variables_initializer(tf.compat.v1.global_variables())
 
     test_flow = test_flow.threaded(5)
     evaluate_score_train_flow = evaluate_score_train_flow.threaded(5)
@@ -441,7 +441,7 @@ def main(exp: mltk.Experiment[PredictConfig], test_config: PredictConfig):
 
         session.run(var_initializer)
 
-        saver = tf.train.Saver(var_list=variables_to_restore)
+        saver = tf.compat.v1.train.Saver(var_list=variables_to_restore)
         saver.restore(session, restore_path)
 
         print('Model params restored.')
