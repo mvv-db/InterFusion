@@ -4,10 +4,7 @@ import os
 import logging
 import time
 import numpy as np
-import tensorflow as tf
-import tfsnippet as spt
-from tfsnippet.scaffold import TrainLoop
-from tfsnippet.trainer import Trainer, Evaluator
+import torch
 import mltk
 from algorithm.utils import get_data_dim, get_data, get_sliding_window_data_flow, time_generator, GraphNodes
 import random
@@ -111,24 +108,23 @@ def get_lr_value(init_lr,
         ratio=anneal_factor,
         epochs=anneal_freq,
     )
-
-
+    
 def sgvb_loss(qnet, pnet, metrics_dict: GraphNodes, prefix='train_', name=None):
-    with tf.compat.v1.name_scope(name, default_name='sgvb_loss'):
-        logpx_z = pnet['x'].log_prob(name='logpx_z')
-        logpz1_z2 = pnet['z1'].log_prob(name='logpz1_z2')
-        logpz2 = pnet['z2'].log_prob(name='logpz2')
+    with torch.autograd.no_grad():
+        logpx_z = pnet['x'].log_prob()
+        logpz1_z2 = pnet['z1'].log_prob()
+        logpz2 = pnet['z2'].log_prob()
         logpz = logpz1_z2 + logpz2
-        logqz1_x = qnet['z1'].log_prob(name='logqz1_x')
-        logqz2_x = qnet['z2'].log_prob(name='logqz2_x')
+        logqz1_x = qnet['z1'].log_prob()
+        logqz2_x = qnet['z2'].log_prob()
         logqz_x = logqz1_x + logqz2_x
 
-        recons_term = tf.reduce_mean(input_tensor=logpx_z)
-        kl_term = tf.reduce_mean(input_tensor=logqz_x - logpz)
-        metrics_dict[prefix + 'recons'] = recons_term
-        metrics_dict[prefix + 'kl'] = kl_term
+        recons_term = logpx_z.mean()
+        kl_term = (logqz_x - logpz).mean()
+        metrics_dict[prefix + 'recons'] = recons_term.item()
+        metrics_dict[prefix + 'kl'] = kl_term.item()
 
-        return -tf.reduce_mean(input_tensor=logpx_z + logpz - logqz_x)
+        return -(logpx_z + logpz - logqz_x).mean()
 
 
 def main(exp: mltk.Experiment[ExpConfig], config: ExpConfig):
@@ -141,11 +137,10 @@ def main(exp: mltk.Experiment[ExpConfig], config: ExpConfig):
     logging.info('Current random seed: %s', config.seed)
     np.random.seed(config.seed)
     random.seed(np.random.randint(0xffffffff))
-    tf.compat.v1.set_random_seed(np.random.randint(0xffffffff))
+    torch.manual_seed(np.random.randint(0xffffffff))
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(np.random.randint(0xffffffff))
     np.random.seed(np.random.randint(0xffffffff))
-
-    spt.settings.check_numerics = config.check_numerics
-    spt.settings.enable_assertions = False
 
     # print the config
     print(mltk.format_key_values(config, title='Configurations'))
@@ -190,16 +185,10 @@ def main(exp: mltk.Experiment[ExpConfig], config: ExpConfig):
         model = MTSAD(config.model, scope='model')
 
     # input placeholders
-    # placeholders are not compatible with eager execution, so we disable it
-    tf.compat.v1.disable_eager_execution()
-    input_x = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, config.model.window_length, config.model.x_dim],name='input_x')
-    input_u = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, config.model.window_length, config.model.u_dim],name='input_u')
-    learning_rate = tf.compat.v1.placeholder(dtype=tf.float32, shape=(), name='learning_rate')
-    is_training = tf.compat.v1.placeholder(dtype=tf.bool, shape=(), name='is_training')
-    #input_x = tf.keras.Input(shape=(config.model.window_length, config.model.x_dim), name='input_x')
-    #input_u = tf.keras.Input(shape=(config.model.window_length, config.model.u_dim), name='input_u')
-    #learning_rate = tf.keras.Input(shape=(), dtype=tf.float32, name='learning_rate')
-    #is_training = tf.keras.Input(shape=(), dtype=tf.bool, name='is_training')
+    input_x = torch.tensor(dtype=torch.float32)
+    input_u = torch.tensor(dtype=torch.float32)
+    learning_rate = torch.tensor(dtype=torch.float32)
+    is_training = True
 
     # derive training nodes
     with tf.compat.v1.name_scope('training'):

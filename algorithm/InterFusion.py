@@ -2,16 +2,8 @@ from enum import Enum
 from typing import Optional, List
 
 import logging
-import tensorflow as tf
-from tensorflow.compat.v1.nn import static_rnn, static_bidirectional_rnn
-from tf_slim import arg_scope
-import tfsnippet as spt
-from tfsnippet.bayes import BayesianNet
-from tfsnippet.utils import (instance_reuse,
-                             VarScopeObject,
-                             reopen_variable_scope)
-from tfsnippet.distributions import FlowDistribution, Normal
-from tfsnippet.layers import l2_regularizer
+import torch
+import torch.nn as nn
 
 import mltk
 from algorithm.recurrent_distribution import RecurrentDistribution
@@ -53,53 +45,52 @@ class ModelConfig(mltk.Config):
 
 
 # The final InterFusion model.
-class MTSAD(VarScopeObject):
+class MTSAD(nn.Module):
 
     def __init__(self, config: ModelConfig, name=None, scope=None):
         self.config = config
-        super(MTSAD, self).__init__(name=name, scope=scope)
+        super(MTSAD, self).__init__()
+        if self.config.rnn_cell == RNNCellType.Basic:
+            self.d_fw_cell = nn.RNNCell(self.config.rnn_input_size, self.config.rnn_hidden_units)
+            self.a_fw_cell = nn.RNNCell(self.config.rnn_input_size, self.config.rnn_hidden_units)
+            if self.config.use_bidirectional_rnn:
+                self.d_bw_cell = nn.RNNCell(self.config.rnn_input_size, self.config.rnn_hidden_units)
+                self.a_bw_cell = nn.RNNCell(self.config.rnn_input_size, self.config.rnn_hidden_units)
+        elif self.config.rnn_cell == RNNCellType.LSTM:
+            self.d_fw_cell = nn.LSTMCell(self.config.rnn_input_size, self.config.rnn_hidden_units)
+            self.a_fw_cell = nn.LSTMCell(self.config.rnn_input_size, self.config.rnn_hidden_units)
+            if self.config.use_bidirectional_rnn:
+                self.d_bw_cell = nn.LSTMCell(self.config.rnn_input_size, self.config.rnn_hidden_units)
+                self.a_bw_cell = nn.LSTMCell(self.config.rnn_input_size, self.config.rnn_hidden_units)
+        elif self.config.rnn_cell == RNNCellType.GRU:
+            self.d_fw_cell = nn.GRUCell(self.config.rnn_input_size, self.config.rnn_hidden_units)
+            self.a_fw_cell = nn.GRUCell(self.config.rnn_input_size, self.config.rnn_hidden_units)
+            if self.config.use_bidirectional_rnn:
+                self.d_bw_cell = nn.GRUCell(self.config.rnn_input_size, self.config.rnn_hidden_units)
+                self.a_bw_cell = nn.GRUCell(self.config.rnn_input_size, self.config.rnn_hidden_units)
+        else:
+            raise ValueError('rnn cell must be one of GRU, LSTM or Basic.')
 
-        with reopen_variable_scope(self.variable_scope):
-            if self.config.rnn_cell == RNNCellType.Basic:
-                self.d_fw_cell = tf.compat.v1.nn.rnn_cell.BasicRNNCell(self.config.rnn_hidden_units, name='d_fw_cell')
-                self.a_fw_cell = tf.compat.v1.nn.rnn_cell.BasicRNNCell(self.config.rnn_hidden_units, name='a_fw_cell')
-                if self.config.use_bidirectional_rnn:
-                    self.d_bw_cell = tf.compat.v1.nn.rnn_cell.BasicRNNCell(self.config.rnn_hidden_units, name='d_bw_cell')
-                    self.a_bw_cell = tf.compat.v1.nn.rnn_cell.BasicRNNCell(self.config.rnn_hidden_units, name='a_bw_cell')
-            elif self.config.rnn_cell == RNNCellType.LSTM:
-                self.d_fw_cell = tf.compat.v1.nn.rnn_cell.LSTMCell(self.config.rnn_hidden_units, name='d_fw_cell')
-                self.a_fw_cell = tf.compat.v1.nn.rnn_cell.LSTMCell(self.config.rnn_hidden_units, name='a_fw_cell')
-                if self.config.use_bidirectional_rnn:
-                    self.d_bw_cell = tf.compat.v1.nn.rnn_cell.LSTMCell(self.config.rnn_hidden_units, name='d_bw_cell')
-                    self.a_bw_cell = tf.compat.v1.nn.rnn_cell.LSTMCell(self.config.rnn_hidden_units, name='a_bw_cell')
-            elif self.config.rnn_cell == RNNCellType.GRU:
-                self.d_fw_cell = tf.compat.v1.nn.rnn_cell.GRUCell(self.config.rnn_hidden_units, name='d_fw_cell')
-                self.a_fw_cell = tf.compat.v1.nn.rnn_cell.GRUCell(self.config.rnn_hidden_units, name='a_fw_cell')
-                if self.config.use_bidirectional_rnn:
-                    self.d_bw_cell = tf.compat.v1.nn.rnn_cell.GRUCell(self.config.rnn_hidden_units, name='d_bw_cell')
-                    self.a_bw_cell = tf.compat.v1.nn.rnn_cell.GRUCell(self.config.rnn_hidden_units, name='a_bw_cell')
-            else:
-                raise ValueError('rnn cell must be one of GRU, LSTM or Basic.')
 
-            if self.config.posterior_flow_type == 'nf':
-                self.posterior_flow = spt.layers.planar_normalizing_flows(n_layers=self.config.posterior_flow_layers,
-                                                                          scope='posterior_flow')
-            elif self.config.posterior_flow_type == 'rnvp':
-                self.posterior_flow = dense_real_nvp(flow_depth=self.config.posterior_flow_layers,
-                                                     activation=tf.nn.leaky_relu if self.config.use_leaky_relu else tf.nn.relu,
-                                                     kernel_regularizer=l2_regularizer(self.config.l2_reg),
-                                                     scope='posterior_flow')
-            else:
-                self.posterior_flow = None
+        if self.config.posterior_flow_type == 'nf':
+            self.posterior_flow = spt.layers.planar_normalizing_flows(n_layers=self.config.posterior_flow_layers,
+                                                                        scope='posterior_flow')
+        elif self.config.posterior_flow_type == 'rnvp':
+            self.posterior_flow = dense_real_nvp(flow_depth=self.config.posterior_flow_layers,
+                                                    activation=nn.LeakyRelu() if self.config.use_leaky_relu else nn.Relu(),
+                                                    kernel_regularizer=l2_regularizer(self.config.l2_reg),
+                                                    scope='posterior_flow')
+        else:
+            self.posterior_flow = None
 
-            if self.config.use_prior_flow:
-                self.prior_flow = dense_real_nvp(flow_depth=self.config.prior_flow_layers,
-                                                 activation=tf.nn.leaky_relu if self.config.use_leaky_relu else tf.nn.relu,
-                                                 kernel_regularizer=l2_regularizer(self.config.l2_reg),
-                                                 is_prior_flow=True,
-                                                 scope='prior_flow')
-            else:
-                self.prior_flow = None
+        if self.config.use_prior_flow:
+            self.prior_flow = dense_real_nvp(flow_depth=self.config.prior_flow_layers,
+                                                activation=nn.LeakyRelu() if self.config.use_leaky_relu else nn.Relu(),
+                                                kernel_regularizer=l2_regularizer(self.config.l2_reg),
+                                                is_prior_flow=True,
+                                                scope='prior_flow')
+        else:
+            self.prior_flow = None
 
     def _my_rnn_net(self, x, window_length, fw_cell, bw_cell=None,
                     time_axis=1, use_bidirectional_rnn=False):
@@ -121,7 +112,7 @@ class MTSAD(VarScopeObject):
         else:
             outputs, _ = static_rnn(fw_cell, x, dtype=tf.float32)
 
-        outputs = tf.stack(outputs, axis=time_axis)     # (batch_size, window_length, rnn_hidden_units)
+        outputs = torch.stack(outputs, dim=time_axis)     # (batch_size, window_length, rnn_hidden_units)
         return outputs
 
     @instance_reuse
@@ -131,7 +122,7 @@ class MTSAD(VarScopeObject):
         Reverse rnn network a, capture the future information in qnet.
         """
         def dropout_fn(input):
-            return tf.compat.v1.layers.dropout(input, rate=.5, training=is_training)
+            return nn.functinoal.dropout(input, p=.5, training=is_training)
 
         flag = False
         if len(x.shape) == 4:               # (n_samples, batch_size, window_length, x_dim)
@@ -151,7 +142,7 @@ class MTSAD(VarScopeObject):
             reversed_outputs = self._my_rnn_net(x=reversed_x, window_length=window_length, fw_cell=self.a_fw_cell,
                                        time_axis=time_axis, use_bidirectional_rnn=use_bidirectional_rnn)
 
-        outputs = tf.reverse(reversed_outputs, axis=[time_axis])
+        outputs = torch.flip(x, dims=(time_axis,))
 
         # self attention
         if use_self_attention:
