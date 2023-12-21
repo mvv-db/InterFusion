@@ -191,7 +191,7 @@ def main(exp: mltk.Experiment[ExpConfig], config: ExpConfig):
 
     # input placeholders
     # placeholders are not compatible with eager execution, so we disable it
-    tf.compat.v1.disable_eager_execution()
+    tf.compat.v1.disable_v2_behavior()
     input_x = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, config.model.window_length, config.model.x_dim],name='input_x')
     input_u = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, config.model.window_length, config.model.u_dim],name='input_u')
     learning_rate = tf.compat.v1.placeholder(dtype=tf.float32, shape=(), name='learning_rate')
@@ -244,10 +244,8 @@ def main(exp: mltk.Experiment[ExpConfig], config: ExpConfig):
              tf.compat.v1.trainable_variables('model/h_for_qz'), tf.compat.v1.trainable_variables('model/h_for_px')],
             []
     )
-    #pre_optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate)
-    #pre_gradients = pre_optimizer.compute_gradients(pretrain_loss, var_list=pre_train_params)
-    pre_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-    pre_gradients = pre_optimizer.get_gradients(pretrain_loss, params=pre_train_params)
+    pre_optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate)
+    pre_gradients = pre_optimizer.compute_gradients(pretrain_loss, var_list=pre_train_params)
     with tf.compat.v1.name_scope('PreClipGradients'):
         for i, (g, v) in enumerate(pre_gradients):
             if g is not None:
@@ -261,10 +259,8 @@ def main(exp: mltk.Experiment[ExpConfig], config: ExpConfig):
     train_params = tf.compat.v1.trainable_variables()
 
     # optimizer
-    #optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate)
-    #gradients = optimizer.compute_gradients(loss, var_list=train_params)
-    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-    gradients = optimizer.get_gradients(loss, params=train_params)
+    optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate)
+    gradients = optimizer.compute_gradients(loss, var_list=train_params)
     # clip gradient by norm
     with tf.compat.v1.name_scope('ClipGradients'):
         for i, (g, v) in enumerate(gradients):

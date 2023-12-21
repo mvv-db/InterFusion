@@ -1,4 +1,4 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import tfsnippet as spt
 from tfsnippet.distributions import Distribution
 from tfsnippet.stochastic import StochasticTensor
