@@ -1,5 +1,5 @@
 numpy==1.21.5
-tensorflow-macos
+#tensorflow-macos
 typing-extensions==4.5.0
 typing-inspect==0.8.0
 tqdm==4.64.0

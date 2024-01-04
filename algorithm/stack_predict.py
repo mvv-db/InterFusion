@@ -1,5 +1,6 @@
 import mltk
 import os
+import re
 
 from explib.eval_methods import get_best_f1, get_adjusted_composite_metrics
 from algorithm.utils import GraphNodes, get_data, time_generator, get_sliding_window_data_flow, get_score, \
@@ -14,34 +15,9 @@ from typing import Optional
 import pickle
 from algorithm.mcmc_recons import mcmc_reconstruct, masked_reconstruct
 from algorithm.cal_IPS import cal_IPS
+from algorithm.stack_train import TrainConfig, PredictConfig
 
-__all__ = ['PredictConfig', 'final_testing', 'build_test_graph']
-
-
-class PredictConfig(mltk.Config):
-    load_model_dir: Optional[str]
-
-    # evaluation params
-    test_n_z = 100
-    test_batch_size = 50
-    test_start = 0
-    max_test_size = None  # `None` means full test set
-
-    save_results = True
-
-    output_dirs = 'analysis_results'
-    train_score_filename = 'train_score.pkl'
-    test_score_filename = 'test_score.pkl'
-    preserve_feature_dim = False  # whether to preserve the feature dim in score. If `True`, the score will be a 2-dim ndarray
-    anomaly_score_calculate_latency = 1   # How many scores are averaged for the final score at a timestamp. `1` means use last point in each sliding window only.
-    plot_recons_results = True
-
-    use_mcmc = True               # use mcmc on the last point for anomaly detection
-    mcmc_iter = 10
-    mcmc_rand_mask = False
-    n_mc_chain: int = 10
-    pos_mask = True
-    mcmc_track = True             # use mcmc tracker for anomaly interpretation and calculate IPS.
+__all__ = ['final_testing', 'build_test_graph']
 
 
 def build_test_graph(chain: spt.VariationalChain, input_x, origin_chain: spt.VariationalChain=None) -> GraphNodes:
@@ -327,15 +303,7 @@ def log_sum_exp(x, axis, keepdims=False):
     return ret
 
 
-def main(exp: mltk.Experiment[PredictConfig], test_config: PredictConfig):
-    if test_config.load_model_dir is None:
-        raise ValueError('`--load_model_dir` is required.')
-
-    exp_config_path = os.path.join(test_config.load_model_dir, 'config.json')
-    from algorithm.stack_train import ExpConfig
-    loader = mltk.ConfigLoader(ExpConfig())
-    loader.load_file(exp_config_path)
-    train_config = loader.get()
+def main(exp: mltk.Experiment[PredictConfig], test_config: PredictConfig, train_config: TrainConfig):
 
     print(mltk.format_key_values(train_config, title='Train configurations'))
     print('')
@@ -353,7 +321,7 @@ def main(exp: mltk.Experiment[PredictConfig], test_config: PredictConfig):
     (x_train, _), (x_test, y_test) = \
         get_data(train_config.dataset, train_config.train.max_train_size, train_config.test.max_test_size,
                  train_start=train_config.train.train_start, test_start=train_config.test.test_start,
-                 valid_portion=train_config.train.valid_portion)
+                 valid_portion=train_config.train.valid_portion, prefix=train_config.dataset_prefix if hasattr(train_config, "dataset_prefix") else None)
 
     if train_config.use_time_info:
         u_train = np.asarray([time_generator(_i) for _i in range(len(x_train))])  # (train_size, u_dim)
@@ -377,6 +345,7 @@ def main(exp: mltk.Experiment[PredictConfig], test_config: PredictConfig):
         model = MTSAD(train_config.model, scope='model')
 
     # input placeholders
+    tf.compat.v1.disable_v2_behavior()
     input_x = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, train_config.model.window_length, train_config.model.x_dim], name='input_x')
     input_u = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, train_config.model.window_length, train_config.model.u_dim], name='input_u')
     mask = tf.compat.v1.placeholder(dtype=tf.int32, shape=[None, train_config.model.window_length, train_config.model.x_dim], name='mask')
@@ -428,11 +397,24 @@ def main(exp: mltk.Experiment[PredictConfig], test_config: PredictConfig):
 
     # obtain params to restore
     variables_to_restore = tf.compat.v1.global_variables()
+    variables_to_restore = [
+        v for v in variables_to_restore 
+        if "_power_" not in v.name 
+        and not re.search("model/a_rnn_net/.*/Adam.*", v.name) 
+        and not re.search("model/h_for_px/.*/Adam_[23]", v.name)
+        and not re.search("model/h_for_qz/.*/Adam_[23]", v.name)
+        and not re.search("model/p_net/.*/Adam.*", v.name)
+        and not re.search("model/posterior_flow/.*/[bias_1|Adam|kernel_1].*", v.name)
+        and not re.search("model/pz_logstd_layer/.*/Adam.*", v.name)
+        and not re.search("model/pz_mean_layer/.*/Adam.*", v.name)
+        and not re.search("model/qz_logstd_layer/.*/Adam.*", v.name)
+        and not re.search("model/qz_mean_layer/.*/Adam.*", v.name)
+    ]
 
     restore_path = os.path.join(test_config.load_model_dir, 'result_params/restored_params.dat')
 
     # obtain the variables initializer
-    var_initializer = tf.compat.v1.variables_initializer(tf.compat.v1.global_variables())
+    var_initializer = tf.compat.v1.variables_initializer(variables_to_restore)
 
     test_flow = test_flow.threaded(5)
     evaluate_score_train_flow = evaluate_score_train_flow.threaded(5)
@@ -441,8 +423,10 @@ def main(exp: mltk.Experiment[PredictConfig], test_config: PredictConfig):
 
         session.run(var_initializer)
 
+        print("======= GOOD to HERE =========")
         saver = tf.compat.v1.train.Saver(var_list=variables_to_restore)
         saver.restore(session, restore_path)
+        print("===== DID IT WORK? ====")
 
         print('Model params restored.')
 
