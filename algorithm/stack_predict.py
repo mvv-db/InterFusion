@@ -397,19 +397,6 @@ def main(exp: mltk.Experiment[PredictConfig], test_config: PredictConfig, train_
 
     # obtain params to restore
     variables_to_restore = tf.compat.v1.global_variables()
-    variables_to_restore = [
-        v for v in variables_to_restore 
-        if "_power_" not in v.name 
-        and not re.search("model/a_rnn_net/.*/Adam.*", v.name) 
-        and not re.search("model/h_for_px/.*/Adam_[23]", v.name)
-        and not re.search("model/h_for_qz/.*/Adam_[23]", v.name)
-        and not re.search("model/p_net/.*/Adam.*", v.name)
-        and not re.search("model/posterior_flow/.*/[bias_1|Adam|kernel_1].*", v.name)
-        and not re.search("model/pz_logstd_layer/.*/Adam.*", v.name)
-        and not re.search("model/pz_mean_layer/.*/Adam.*", v.name)
-        and not re.search("model/qz_logstd_layer/.*/Adam.*", v.name)
-        and not re.search("model/qz_mean_layer/.*/Adam.*", v.name)
-    ]
 
     restore_path = os.path.join(test_config.load_model_dir, 'result_params/restored_params.dat')
 
@@ -423,10 +410,8 @@ def main(exp: mltk.Experiment[PredictConfig], test_config: PredictConfig, train_
 
         session.run(var_initializer)
 
-        print("======= GOOD to HERE =========")
         saver = tf.compat.v1.train.Saver(var_list=variables_to_restore)
         saver.restore(session, restore_path)
-        print("===== DID IT WORK? ====")
 
         print('Model params restored.')
 
@@ -613,6 +598,13 @@ def main(exp: mltk.Experiment[PredictConfig], test_config: PredictConfig, train_
 
         print('')
         print(mltk.format_key_values(exp.results), 'Results')
+
+        final_out = {
+            "global_variables": tf.compat.v1.global_variables(),
+            "test_stats": test_stats,
+            "test_score": test_score,
+        }
+        return final_out
 
 
 if __name__ == '__main__':
