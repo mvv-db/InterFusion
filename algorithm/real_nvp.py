@@ -1,6 +1,6 @@
 import tensorflow as tf
 import tfsnippet as spt
-from tensorflow.contrib.framework import arg_scope
+from tf_slim import arg_scope
 import numpy as np
 from tfsnippet.layers.flows.utils import ZeroLogDet
 
@@ -74,9 +74,9 @@ def dense_real_nvp(flow_depth: int,
 
         # compute shift and scale
         if coupling_scale_shift_initializer == 'zero':
-            pre_params_initializer = tf.zeros_initializer()
+            pre_params_initializer = tf.compat.v1.zeros_initializer()
         else:
-            pre_params_initializer = tf.random_normal_initializer(
+            pre_params_initializer = tf.compat.v1.random_normal_initializer(
                 stddev=coupling_scale_shift_normal_initializer_stddev)
         pre_params = spt.layers.dense(h,
                                       units=n2 * 2,
@@ -88,7 +88,7 @@ def dense_real_nvp(flow_depth: int,
 
         return shift, scale
 
-    with tf.variable_scope(scope):
+    with tf.compat.v1.variable_scope(scope):
         flows = []
         for i in range(flow_depth):
             level = []
@@ -101,7 +101,7 @@ def dense_real_nvp(flow_depth: int,
                 level.append(FeatureReversingFlow())
             level.append(
                 spt.layers.CouplingLayer(
-                    tf.make_template(
+                    tf.compat.v1.make_template(
                         'coupling', shift_and_scale, create_scope_now_=True),
                     scale_type=coupling_scale_type,
                     sigmoid_scale_bias=coupling_sigmoid_scale_bias,

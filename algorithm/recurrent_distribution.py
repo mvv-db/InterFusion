@@ -1,6 +1,6 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import tfsnippet as spt
-from tfsnippet.distributions import Distribution, Normal
+from tfsnippet.distributions import Distribution
 from tfsnippet.stochastic import StochasticTensor
 import numpy as np
 
@@ -26,12 +26,12 @@ class RecurrentDistribution(Distribution):
         self.origin_input = input
         if len(input.shape) > 3:
             input, s1, s2 = spt.ops.flatten_to_ndims(input, 3)
-            self.time_first_input = tf.transpose(input, [1, 0, 2])
+            self.time_first_input = tf.transpose(a=input, perm=[1, 0, 2])
             self.s1 = s1
             self.s2 = s2
             self.need_unflatten = True
         elif len(input.shape) == 3:
-            self.time_first_input = tf.transpose(input, [1, 0, 2])  # (window_length, batch_size, feature_dim)
+            self.time_first_input = tf.transpose(a=input, perm=[1, 0, 2])  # (window_length, batch_size, feature_dim)
             self.s1 = None
             self.s2 = None
             self.need_unflatten = False
@@ -50,10 +50,10 @@ class RecurrentDistribution(Distribution):
         c = -0.5 * np.log(2 * np.pi)
         precision = tf.exp(-2 * logstd)
         if self._check_numerics:
-            precision = tf.check_numerics(precision, "precision")
+            precision = tf.debugging.check_numerics(precision, "precision")
         log_prob = c - logstd - 0.5 * precision * tf.square(x - mu)
         if self._check_numerics:
-            log_prob = tf.check_numerics(log_prob, 'log_prob')
+            log_prob = tf.debugging.check_numerics(log_prob, 'log_prob')
         return log_prob
 
     def sample_step(self, a, t):
@@ -99,12 +99,12 @@ class RecurrentDistribution(Distribution):
         else:
             n_samples_is_none = False
 
-        with tf.name_scope(name=name, default_name='sample'):
-            noise = tf.random_normal(shape=[n_samples, tf.shape(self.time_first_input)[0],
-                                            tf.shape(self.time_first_input)[1], self.z_dim])  # (n_samples, window_length, batch_size, z_dim)
-            noise = tf.transpose(noise, [1, 0, 2, 3])   # (window_length, n_samples, batch_size, z_dim)
+        with tf.compat.v1.name_scope(name=name, default_name='sample'):
+            noise = tf.random.normal(shape=[n_samples, tf.shape(input=self.time_first_input)[0],
+                                            tf.shape(input=self.time_first_input)[1], self.z_dim])  # (n_samples, window_length, batch_size, z_dim)
+            noise = tf.transpose(a=noise, perm=[1, 0, 2, 3])   # (window_length, n_samples, batch_size, z_dim)
 
-            time_indices_shape = tf.convert_to_tensor([n_samples, tf.shape(self.time_first_input)[1], self.z_dim])  # (n_samples, batch_size, z_dim)
+            time_indices_shape = tf.convert_to_tensor(value=[n_samples, tf.shape(input=self.time_first_input)[1], self.z_dim])  # (n_samples, batch_size, z_dim)
 
             results = tf.scan(fn=self.sample_step,
                               elems=(noise, self.time_first_input),
@@ -115,9 +115,9 @@ class RecurrentDistribution(Distribution):
                               back_prop=True
                               )  # 4 * window_length * n_samples * batch_size * z_dim
 
-            samples = tf.transpose(results[0], [1, 2, 0, 3])  # n_samples * batch_size * window_length * z_dim
+            samples = tf.transpose(a=results[0], perm=[1, 2, 0, 3])  # n_samples * batch_size * window_length * z_dim
 
-            log_prob = tf.transpose(results[-1], [1, 2, 0, 3])  # (n_samples, batch_size, window_length, z_dim)
+            log_prob = tf.transpose(a=results[-1], perm=[1, 2, 0, 3])  # (n_samples, batch_size, window_length, z_dim)
 
             if self.need_unflatten:
                 # unflatten to (n_samples, n_samples_of_input_tensor, batch_size, window_length, z_dim)
@@ -129,13 +129,13 @@ class RecurrentDistribution(Distribution):
             if n_samples_is_none:
                 t = StochasticTensor(
                     distribution=self,
-                    tensor=tf.reduce_mean(samples, axis=0),
+                    tensor=tf.reduce_mean(input_tensor=samples, axis=0),
                     group_ndims=group_ndims,
                     is_reparameterized=self.is_reparameterized,
-                    log_prob=tf.reduce_mean(log_prob, axis=0)
+                    log_prob=tf.reduce_mean(input_tensor=log_prob, axis=0)
                 )
-                self._mu = tf.reduce_mean(tf.transpose(results[1], [1, 2, 0, 3]), axis=0)
-                self._logstd = tf.reduce_mean(tf.transpose(results[2], [1, 2, 0, 3]), axis=0)
+                self._mu = tf.reduce_mean(input_tensor=tf.transpose(a=results[1], perm=[1, 2, 0, 3]), axis=0)
+                self._logstd = tf.reduce_mean(input_tensor=tf.transpose(a=results[2], perm=[1, 2, 0, 3]), axis=0)
                 if self.need_unflatten:
                     self._mu = spt.ops.unflatten_from_ndims(self._mu, self.s1, self.s2)
                     self._logstd = spt.ops.unflatten_from_ndims(self._logstd, self.s1, self.s2)
@@ -148,8 +148,8 @@ class RecurrentDistribution(Distribution):
                     is_reparameterized=self.is_reparameterized,
                     log_prob=log_prob
                 )
-                self._mu = tf.transpose(results[1], [1, 2, 0, 3])
-                self._logstd = tf.transpose(results[2], [1, 2, 0, 3])
+                self._mu = tf.transpose(a=results[1], perm=[1, 2, 0, 3])
+                self._logstd = tf.transpose(a=results[2], perm=[1, 2, 0, 3])
                 if self.need_unflatten:
                     self._mu = tf.stack([spt.ops.unflatten_from_ndims(self._mu[i], self.s1, self.s2) for i in range(n_samples)], axis=0)
                     self._logstd = tf.stack([spt.ops.unflatten_from_ndims(self._logstd[i], self.s1, self.s2) for i in range(n_samples)], axis=0)
@@ -157,22 +157,22 @@ class RecurrentDistribution(Distribution):
             return t
 
     def log_prob(self, given, group_ndims=0, name=None):
-        with tf.name_scope(name=name, default_name='log_prob'):
+        with tf.compat.v1.name_scope(name=name, default_name='log_prob'):
             if self.need_unflatten:
                 assert len(given.shape) == len(self.origin_input.shape)
                 assert given.shape[0] == self.origin_input.shape[0]
-                time_first_input = tf.transpose(self.origin_input, [2, 0, 1, 3])    # (window, sample, batch, feature)
+                time_first_input = tf.transpose(a=self.origin_input, perm=[2, 0, 1, 3])    # (window, sample, batch, feature)
                 # time_indices_shape: (n_sample, batch_size, z_dim)
-                time_indices_shape = tf.convert_to_tensor([tf.shape(given)[0], tf.shape(time_first_input)[2], self.z_dim])
-                given = tf.transpose(given, [2, 0, 1, 3])
+                time_indices_shape = tf.convert_to_tensor(value=[tf.shape(input=given)[0], tf.shape(input=time_first_input)[2], self.z_dim])
+                given = tf.transpose(a=given, perm=[2, 0, 1, 3])
             else:
                 if len(given.shape) > 3:    # (n_sample, batch_size, window_length, z_dim)
-                    time_indices_shape = tf.convert_to_tensor([tf.shape(given)[0], tf.shape(self.time_first_input)[1], self.z_dim])
-                    given = tf.transpose(given, [2, 0, 1, 3])
+                    time_indices_shape = tf.convert_to_tensor(value=[tf.shape(input=given)[0], tf.shape(input=self.time_first_input)[1], self.z_dim])
+                    given = tf.transpose(a=given, perm=[2, 0, 1, 3])
                     time_first_input = self.time_first_input
                 else:                       # (batch_size, window_length, z_dim)
-                    time_indices_shape = tf.convert_to_tensor([tf.shape(self.time_first_input)[1], self.z_dim])
-                    given = tf.transpose(given, [1, 0, 2])
+                    time_indices_shape = tf.convert_to_tensor(value=[tf.shape(input=self.time_first_input)[1], self.z_dim])
+                    given = tf.transpose(a=given, perm=[1, 0, 2])
                     time_first_input = self.time_first_input
             results = tf.scan(fn=self.log_prob_step,
                                elems=(given, time_first_input),
@@ -183,14 +183,14 @@ class RecurrentDistribution(Distribution):
                                back_prop=True
                                )        # (window_length, ?, batch_size, z_dim)
             if len(given.shape) > 3:
-                log_prob = tf.transpose(results[-1], [1, 2, 0, 3])
+                log_prob = tf.transpose(a=results[-1], perm=[1, 2, 0, 3])
             else:
-                log_prob = tf.transpose(results[-1], [1, 0, 2])
+                log_prob = tf.transpose(a=results[-1], perm=[1, 0, 2])
 
             log_prob = spt.reduce_group_ndims(tf.reduce_sum, log_prob, group_ndims)
             return log_prob
 
     def prob(self, given, group_ndims=0, name=None):
-        with tf.name_scope(name=name, default_name='prob'):
+        with tf.compat.v1.name_scope(name=name, default_name='prob'):
             log_prob = self.log_prob(given, group_ndims, name)
             return tf.exp(log_prob)

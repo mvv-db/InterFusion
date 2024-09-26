@@ -5,7 +5,6 @@ import pickle
 from sklearn.preprocessing import MinMaxScaler
 from typing import *
 import tensorflow as tf
-from functools import partial
 
 # here, use 'min_max' or 'mean_std' for different method
 # method = 'min_max' or 'mean_std'
@@ -182,7 +181,7 @@ class GraphNodes(Dict[str, TensorLike]):
                 raise TypeError(f'The value of `{k}` is not a tensor: {v!r}.')
 
     def eval(self,
-             session: tf.Session = None,
+             session: tf.compat.v1.Session = None,
              feed_dict: Dict[tf.Tensor, Any] = None) -> Dict[str, Any]:
         """
         Evaluate all the nodes with the specified `session`.
